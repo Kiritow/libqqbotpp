@@ -2,6 +2,7 @@
 #include "NetworkWrapper.h"
 #include <cpplib/cpplib#gcolor>
 #include <algorithm>
+#include <functional>
 #include "util.h"
 #include "StringLoader.h"
 #include <windows.h>
@@ -145,8 +146,58 @@ int QQClient::_impl::OpenQRCode()
     return 0;
 }
 
+static int CALLBACK _global_enumwindows_delegator(HWND hwnd,LPARAM p)
+{
+    auto pfn=(function<int(HWND)>*)p;
+    return (*pfn)(hwnd);
+}
+
 int QQClient::_impl::CloseQRCode()
 {
+    int target_pid=-1;
+    function<int(HWND)> fn=[&](HWND hwnd)
+    {
+        char buff[1024];
+        memset(buff,0,1024);
+        GetWindowText(hwnd,buff,1024);
+        if(strstr(buff,"qrcode.png"))
+        {
+            DWORD pid;
+            GetWindowThreadProcessId(hwnd,&pid);
+            target_pid=pid;
+            /// stop enum
+            return 0;
+        }
+        else
+        {
+            return 1;
+        }
+    };
+    EnumWindows(_global_enumwindows_delegator,(LPARAM)&fn);
+    if(target_pid<0)
+    {
+        ShowError("Failed to close qrcode window.\n");
+        /// but this is not a critical error.
+    }
+    else
+    {
+        HANDLE hand=OpenProcess(PROCESS_TERMINATE,FALSE,target_pid);
+        if(hand==NULL)
+        {
+            ShowError("Failed to open process.\n");
+        }
+        else
+        {
+            if(!TerminateProcess(hand,0))
+            {
+                ShowError("Failed to terminate process with process id: %d\n",target_pid);
+            }
+            else
+            {
+                ShowMsg("Process terminated. QRCode window might be closed.\n");
+            }
+        }
+    }
     return 0;
 }
 
