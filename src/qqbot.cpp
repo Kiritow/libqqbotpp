@@ -1,9 +1,11 @@
 #include "qqbot.h"
 #include "NetworkWrapper.h"
 #include <cpplib/cpplib#gcolor>
+#include <algorithm>
 #include "util.h"
 #include "StringLoader.h"
 #include <windows.h>
+#include "json.hpp"
 using namespace std;
 
 class QQClient::_impl
@@ -12,9 +14,16 @@ public:
     int GetQRCode();
     int OpenQRCode();
     int GetQRScanStatus();
+    int GetPtWebQQ();
+    int GetVfWebQQ();
 
     string qrsig;
     string qrcode_filename;
+    /// https://ptlogin2.web2.qq.com/check_sig?pttype=1&uin=...
+    string login_url;
+    string ptwebqq;
+    string vfwebqq;
+
     StringLoader mp;
 };
 
@@ -26,7 +35,9 @@ public:
                     "ptredirect=0&ptlang=2052&daid=164&from_ui=1&pttype=1&dumy=&fp=loginerroralert&0-0-157510&" \
                     "mibao_css=m_webqq&t=undefined&g=1&js_type=0&js_ver=10184&login_sig=&pt_randsalt=3"
 #define REF_2 "https://ui.ptlogin2.qq.com/cgi-bin/login?daid=164&target=self&style=16&mibao_css=m_webqq&appid=501004106&enable_qlogin=0&no_verifyimg=1 &s_url=http%3A%2F%2Fw.qq.com%2Fproxy.html&f_url=loginerroralert &strong_login=1&login_state=10&t=20131024001"
-
+#define REF_3 "http://s.web2.qq.com/proxy.html?v=20130916001&callback=1&id=1"
+#define URL_4R "http://s.web2.qq.com/api/getvfwebqq?ptwebqq={1}&clientid=53999199&psessionid=&t=0.1"
+#define REF_4 "http://s.web2.qq.com/proxy.html?v=20130916001&callback=1&id=1"
 
 QQClient::QQClient()
 {
@@ -181,12 +192,80 @@ int QQClient::_impl::GetQRScanStatus()
     }
     else if(strstr(buff,"http")) /// Now the API returns https instead of http.
     {
+        char xbuf[1024];
+        memset(xbuf,0,1024);
+        char* p=strstr(buff,"http");
+        char* q=strstr(p,"'");
+        strncpy(xbuf,p,q-p);
+        login_url=xbuf;
         return 1;
     }
     else
     {
         return -3;
     }
+}
+
+int QQClient::_impl::GetPtWebQQ()
+{
+    HTTPConnection t;
+    t.setVerbos(true);
+    t.setUserAgent(USERAGENT);
+    t.setURL(login_url);
+    t.setReferer(REF_3);
+    /// Notice that this URL is not viewed before. So no need for input cookie.
+    /// But we have to enable cookie engine. (due to design of libcurl...)
+    t.enableCookieEngine();
+    t.setCookieOutputFile("tmp/cookie3.txt");
+    t.perform();
+
+    if(t.getResponseCode()!=302)
+    {
+        ShowError("Failed to get ptwebqq. Response code: %d\n",t.getResponseCode());
+    }
+
+    vector<Cookie> vec=t.getCookies();
+    vector<Cookie>::iterator iter=find_if(vec.begin(),vec.end(),[](const Cookie& c){return c.name=="ptwebqq";});
+    if(iter!=vec.end())
+    {
+        ptwebqq=iter->value;
+    }
+    else
+    {
+        ShowError("Failed to find ptwebqq in cookie.\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+int QQClient::_impl::GetVfWebQQ()
+{
+    char buff[1024];
+    memset(buff,0,1024);
+
+    HTTPConnection t;
+    t.setUserAgent(USERAGENT);
+    t.setURL(StrParse(URL_4R,ptwebqq));
+    t.setReferer(REF_4);
+    /// Notice that this URL is not viewed before.
+    t.enableCookieEngine();
+    t.setCookieOutputFile("tmp/cookie4.txt");
+    t.setDataOutputBuffer(buff,1024);
+    t.perform();
+
+    if(t.getResponseCode()!=200)
+    {
+        ShowError("Failed to get vfwebqq. Response Code: %d\n",t.getResponseCode());
+        return -1;
+    }
+
+    printf("Buffer Received: %s\n",buff);
+
+    nlohmann::json j=nlohmann::json::parse(buff);
+    vfwebqq=j["vfwebqq"];
+
+    return 0;
 }
 
 int QQClient::login()
@@ -214,5 +293,22 @@ int QQClient::login()
         return -2;
     }
     ShowMsg("[OK] ScanStatus.\n");
+
+    ShowMsg("[Starting] ptwebqq\n");
+    if(_p->GetPtWebQQ()<0)
+    {
+        ShowError("Failed to get ptwebqq.\n");
+        return -3;
+    }
+    ShowMsg("[OK] ptwebqq\n");
+
+    ShowMsg("[Starting] vfwebqq\n");
+    if(_p->GetVfWebQQ()<0)
+    {
+        ShowError("Failed to get vfwebqq.\n");
+        return -4;
+    }
+    ShowMsg("[OK] vfwebqq\n");
+
     return 0;
 }
