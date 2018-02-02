@@ -13,9 +13,11 @@ class QQClient::_impl
 public:
     int GetQRCode();
     int OpenQRCode();
+    int CloseQRCode();
     int GetQRScanStatus();
     int GetPtWebQQ();
     int GetVfWebQQ();
+    int GetPSessionID_UIN();
 
     string qrsig;
     string qrcode_filename;
@@ -139,6 +141,11 @@ int QQClient::_impl::OpenQRCode()
     return 0;
 }
 
+int QQClient::_impl::CloseQRCode()
+{
+    return 0;
+}
+
 /// Hash function for generating ptqrtoken
 string hash33(const std::string& s)
 {
@@ -192,12 +199,15 @@ int QQClient::_impl::GetQRScanStatus()
     }
     else if(strstr(buff,"http")) /// Now the API returns https instead of http.
     {
+        CloseQRCode();
+
         char xbuf[1024];
         memset(xbuf,0,1024);
         char* p=strstr(buff,"http");
         char* q=strstr(p,"'");
         strncpy(xbuf,p,q-p);
         login_url=xbuf;
+
         return 1;
     }
     else
@@ -213,9 +223,7 @@ int QQClient::_impl::GetPtWebQQ()
     t.setUserAgent(USERAGENT);
     t.setURL(login_url);
     t.setReferer(REF_3);
-    /// Notice that this URL is not viewed before. So no need for input cookie.
-    /// But we have to enable cookie engine. (due to design of libcurl...)
-    t.enableCookieEngine();
+    t.setCookieInputFile("tmp/cookie2.txt");
     t.setCookieOutputFile("tmp/cookie3.txt");
     t.perform();
 
@@ -248,8 +256,7 @@ int QQClient::_impl::GetVfWebQQ()
     t.setUserAgent(USERAGENT);
     t.setURL(StrParse(URL_4R,ptwebqq));
     t.setReferer(REF_4);
-    /// Notice that this URL is not viewed before.
-    t.enableCookieEngine();
+    t.setCookieInputFile("tmp/cookie3.txt");
     t.setCookieOutputFile("tmp/cookie4.txt");
     t.setDataOutputBuffer(buff,1024);
     t.perform();
@@ -263,7 +270,23 @@ int QQClient::_impl::GetVfWebQQ()
     printf("Buffer Received: %s\n",buff);
 
     nlohmann::json j=nlohmann::json::parse(buff);
-    vfwebqq=j["vfwebqq"];
+    try
+    {
+        vfwebqq=j["result"]["vfwebqq"];
+    }
+    catch(...)
+    {
+        return -2;
+    }
+
+    return 0;
+}
+
+int QQClient::_impl::GetPSessionID_UIN()
+{
+    HTTPConnection t;
+    t.setVerbos(true);
+    t.setUserAgent(USERAGENT);
 
     return 0;
 }
@@ -309,6 +332,14 @@ int QQClient::login()
         return -4;
     }
     ShowMsg("[OK] vfwebqq\n");
+
+    ShowMsg("[Starting] psessionid,uin\n");
+    if(_p->GetPSessionID_UIN()<0)
+    {
+        ShowError("Failed to get psessionid,uin.\n");
+        return -5;
+    }
+    ShowMsg("[OK] psessionid,uin\n");
 
     return 0;
 }
