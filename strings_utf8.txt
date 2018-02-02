@@ -1,0 +1,6 @@
+qrcode_valid
+二维码未失效
+qrcode_scanning
+二维码认证中
+qrcode_invalid
+二维码已失效
