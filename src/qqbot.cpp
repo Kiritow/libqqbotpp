@@ -25,6 +25,8 @@ public:
     string login_url;
     string ptwebqq;
     string vfwebqq;
+    string psessionid;
+    int uin;
 
     StringLoader mp;
 };
@@ -40,6 +42,8 @@ public:
 #define REF_3 "http://s.web2.qq.com/proxy.html?v=20130916001&callback=1&id=1"
 #define URL_4R "http://s.web2.qq.com/api/getvfwebqq?ptwebqq={1}&clientid=53999199&psessionid=&t=0.1"
 #define REF_4 "http://s.web2.qq.com/proxy.html?v=20130916001&callback=1&id=1"
+#define URL_5 "http://d1.web2.qq.com/channel/login2"
+#define REF_5 "http://d1.web2.qq.com/proxy.html?v=20151105001&callback=1&id=2"
 
 QQClient::QQClient()
 {
@@ -284,9 +288,45 @@ int QQClient::_impl::GetVfWebQQ()
 
 int QQClient::_impl::GetPSessionID_UIN()
 {
+    char buff[1024];
+    memset(buff,0,1024);
+
     HTTPConnection t;
     t.setVerbos(true);
     t.setUserAgent(USERAGENT);
+    t.setMethod(HTTPConnection::Method::Post);
+    t.setURL(URL_5);
+    t.setReferer(REF_5);
+    t.setDataOutputBuffer(buff,1024);
+    t.setCookieInputFile("tmp/cookie4.txt");
+    t.setCookieOutputFile("tmp/cookie5.txt");
+    nlohmann::json j;
+    j["ptwebqq"]=ptwebqq;
+    j["clientid"]=53999199;
+    j["psessionid"]="";
+    j["status"]="online";
+    string jstr="r="+j.dump();
+    t.setPostData(jstr);
+    t.perform();
+
+    if(t.getResponseCode()!=200)
+    {
+        ShowError("Failed to get psessionid. Response Code: %d\n",t.getResponseCode());
+        return -1;
+    }
+
+    ShowMsg("Response buff: %s\n",buff);
+
+    j=nlohmann::json::parse(buff);
+    try
+    {
+        psessionid=j["result"]["psessionid"];
+        uin=j["result"]["uin"];
+    }
+    catch(...)
+    {
+        return -2;
+    }
 
     return 0;
 }
@@ -341,5 +381,6 @@ int QQClient::login()
     }
     ShowMsg("[OK] psessionid,uin\n");
 
+    ShowMsg("[OK] Successfully logged in.\n");
     return 0;
 }
