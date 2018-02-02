@@ -1,0 +1,3 @@
+[submodule "CurlWrapper"]
+	path = CurlWrapper
+	url = https://github.com/Kiritow/CurlWrapper
