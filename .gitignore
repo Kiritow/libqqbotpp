@@ -4,4 +4,4 @@ tmp/
 *.cbp
 *.layout
 *.depend
-
+/*.dll
