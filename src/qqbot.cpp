@@ -1,6 +1,5 @@
 #include "qqbot.h"
 #include "NetworkWrapper.h"
-#include <cpplib/cpplib#gcolor>
 #include <algorithm>
 #include <functional>
 #include "util.h"
@@ -11,7 +10,37 @@
 #include <vector>
 #include <condition_variable>
 #include "json.hpp"
+/// Delete if compile error here.
+#include <cpplib/cpplib#gcolor>
 using namespace std;
+
+class QQMessage::_impl
+{
+public:
+    int status;
+};
+
+QQMessage::QQMessage() : _p(new _impl)
+{
+    if(_p)
+    {
+        _p->status=-1;
+    }
+}
+
+QQMessage::~QQMessage()
+{
+    if(_p)
+    {
+        delete _p;
+        _p=nullptr;
+    }
+}
+
+bool QQMessage::isReady() const
+{
+    return _p&&_p->status==1;
+}
 
 class QQClient::_impl
 {
@@ -24,6 +53,8 @@ public:
     int GetVfWebQQ();
     int GetPSessionID_UIN();
 
+    QQMessage GetNextMessage();
+
     string qrsig;
     string qrcode_filename;
     /// https://ptlogin2.web2.qq.com/check_sig?pttype=1&uin=...
@@ -34,8 +65,9 @@ public:
     int uin;
 
     StringLoader mp;
+
     thread td;
-    vector<MessagePack> mvec;
+    vector<QQMessage> mvec;
     mutex mvec_lock;
 };
 
@@ -53,7 +85,7 @@ public:
 #define URL_5 "http://d1.web2.qq.com/channel/login2"
 #define REF_5 "http://d1.web2.qq.com/proxy.html?v=20151105001&callback=1&id=2"
 #define URL_POLL "https://d1.web2.qq.com/channel/poll2"
-#define REF_POLL"https://d1.web2.qq.com/proxy.html?v=20151105001&callback=1&id=2"
+#define REF_POLL "https://d1.web2.qq.com/proxy.html?v=20151105001&callback=1&id=2"
 
 QQClient::QQClient()
 {
@@ -73,8 +105,13 @@ QQClient::~QQClient()
     }
 }
 
+#ifdef cpplib_gcolor
 #define ShowError(fmt,...) cprint(Color::red,Color::black);printf(fmt,##__VA_ARGS__);cprint()
 #define ShowMsg(fmt,...) cprint(Color::yellow,Color::black);printf(fmt,##__VA_ARGS__);cprint()
+#else
+#define ShowError(fmt,...) printf("[Message] ");printf(fmt,##__VA_ARGS__)
+#define ShowMsg(fmt,...) printf("[Error] ");printf(fmt,##__VA_ARGS__)
+#endif
 
 void ReplaceTag(std::string& src,const std::string& tag,const std::string& replaceto)
 {
@@ -211,7 +248,7 @@ int QQClient::_impl::CloseQRCode()
 }
 
 /// Hash function for generating ptqrtoken
-string hash33(const std::string& s)
+static string hash33(const std::string& s)
 {
     int e = 0;
     int sz=s.size();
@@ -391,6 +428,65 @@ int QQClient::_impl::GetPSessionID_UIN()
     return 0;
 }
 
+QQMessage QQClient::_impl::GetNextMessage()
+{
+    char buff[4096];
+    memset(buff,0,4096);
+
+    HTTPConnection t;
+    t.setUserAgent(USERAGENT);
+    t.setURL(URL_POLL);
+    t.setReferer(REF_POLL);
+
+    nlohmann::json j;
+    j["ptwebqq"]=ptwebqq;
+    j["clientid"]=53999199;
+    j["psessionid"]=psessionid;
+    j["key"]="";
+
+    string jstr="r="+j.dump();
+
+    t.setPostData(jstr);
+    t.setCookieInputFile("tmp/cookie5.txt");
+    t.setDataOutputBuffer(buff,4096);
+
+    t.perform();
+
+    ShowMsg("Message raw buff:\n%s\n",buff);
+
+    nlohmann::json x=nlohmann::json::parse(buff);
+
+    try
+    {
+        auto& f=x["result"];
+        int sz=f.size();
+        for(int i=0;i<sz;i++)
+        {
+            auto& msg=f[i];
+            QQMessage m;
+            m.poll_type=msg["poll_type"];
+
+            auto& msgobj=msg["value"];
+
+            m.timestamp=msgobj["time"];
+            m.sender_uin=msgobj["from_uin"];
+            m.receiver_qq=msgobj["to_uin"];
+            mvec.push_back(m);
+        }
+
+        /// Sort of stupid method.
+        QQMessage xm=mvec.at(0);
+        mvec.erase(mvec.begin());
+        return xm;
+    }
+    catch(exception& e)
+    {
+        ShowError("Exception caught: %s\n",e.what());
+        QQMessage m;
+        return m;
+    }
+}
+
 int QQClient::loginWithQRCode()
 {
     ShowMsg("[Starting] QRCode\n");
@@ -447,4 +543,15 @@ int QQClient::loginWithQRCode()
 
     ShowMsg("[OK] message receiver.\n");
     return 0;
+}
+
+int QQClient::login()
+{
+    /// loginWithCookie is not implemented yet.
+    return loginWithQRCode();
+}
+
+QQMessage QQClient::getNextMessage()
+{
+    return _p->GetNextMessage();
 }
