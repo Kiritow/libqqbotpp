@@ -6,6 +6,10 @@
 #include "util.h"
 #include "StringLoader.h"
 #include <windows.h>
+#include <thread>
+#include <mutex>
+#include <vector>
+#include <condition_variable>
 #include "json.hpp"
 using namespace std;
 
@@ -30,6 +34,9 @@ public:
     int uin;
 
     StringLoader mp;
+    thread td;
+    vector<MessagePack> mvec;
+    mutex mvec_lock;
 };
 
 #define USERAGENT "Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.79 Safari/537.36"
@@ -45,6 +52,8 @@ public:
 #define REF_4 "http://s.web2.qq.com/proxy.html?v=20130916001&callback=1&id=1"
 #define URL_5 "http://d1.web2.qq.com/channel/login2"
 #define REF_5 "http://d1.web2.qq.com/proxy.html?v=20151105001&callback=1&id=2"
+#define URL_POLL "https://d1.web2.qq.com/channel/poll2"
+#define REF_POLL"https://d1.web2.qq.com/proxy.html?v=20151105001&callback=1&id=2"
 
 QQClient::QQClient()
 {
@@ -382,7 +391,7 @@ int QQClient::_impl::GetPSessionID_UIN()
     return 0;
 }
 
-int QQClient::login()
+int QQClient::loginWithQRCode()
 {
     ShowMsg("[Starting] QRCode\n");
     /// Notice that we must write '\\' instead of '/' as we are running on Windows.
@@ -433,5 +442,9 @@ int QQClient::login()
     ShowMsg("[OK] psessionid,uin\n");
 
     ShowMsg("[OK] Successfully logged in.\n");
+
+    ShowMsg("[Starting] message receiver\n");
+
+    ShowMsg("[OK] message receiver.\n");
     return 0;
 }
