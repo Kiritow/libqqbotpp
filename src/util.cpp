@@ -52,7 +52,8 @@ static int _gb_to_utf8(const char* src, char* dst, int len)
 
 string UTF8ToGBK(string UTF8String)
 {
-    int sz=UTF8String.size()*2/3+256;
+    /// encounter an error while UTF8String is very long and contains more ASCII chars.
+    int sz=UTF8String.size()+32;
     auto gbkstr=new char[sz];
     memset(gbkstr,0,sz);
 

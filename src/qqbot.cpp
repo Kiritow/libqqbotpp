@@ -54,6 +54,7 @@ public:
     int GetPSessionID_UIN();
 
     QQMessage GetNextMessage();
+    vector<QQFriend> GetFriendList();
 
     string qrsig;
     string qrcode_filename;
@@ -86,6 +87,8 @@ public:
 #define REF_5 "http://d1.web2.qq.com/proxy.html?v=20151105001&callback=1&id=2"
 #define URL_POLL "https://d1.web2.qq.com/channel/poll2"
 #define REF_POLL "https://d1.web2.qq.com/proxy.html?v=20151105001&callback=1&id=2"
+#define URL_GET_FRIEND_LIST "https://s.web2.qq.com/api/get_user_friends2"
+#define REF_GET_FRIEND_LIST "https://s.web2.qq.com/proxy.html?v=20130916001&callback=1&id=1"
 
 QQClient::QQClient()
 {
@@ -435,6 +438,7 @@ QQMessage QQClient::_impl::GetNextMessage()
 
     HTTPConnection t;
     t.setUserAgent(USERAGENT);
+    t.setMethod(HTTPConnection::Method::Post);
     t.setURL(URL_POLL);
     t.setReferer(REF_POLL);
 
@@ -485,6 +489,154 @@ QQMessage QQClient::_impl::GetNextMessage()
         QQMessage m;
         return m;
     }
+}
+
+/// Hidden hash function. Thanks to @ScienJus and pandolia/qqbot
+static string hidden_hash(int uin,string ptwebqq)
+{
+    int n[4];
+    memset(n,0,sizeof(int)*4); /// remember to clear the memory. (will ={0} be useful?)
+
+    int sz=ptwebqq.size();
+    for(int i=0;i<sz;i++)
+    {
+        n[i%4]^=(int)ptwebqq[i];
+    }
+    const char* u="ECOK";
+    int v[4];
+    v[0] = ( (uin >> 24) & 255 ) ^ u[0];
+    v[1] = ( (uin >> 16) & 255 ) ^ u[1];
+    v[2] = ( (uin >> 8) & 255 ) ^ u[2];
+    v[3] = ( uin & 255 ) ^ u[3];
+
+    int uu[8];
+    for(int i=0;i<8;i++)
+    {
+        uu[i]= (i%2==0)?n[i>>1]:v[i>>1] ;
+    }
+
+    const char* chex="0123456789ABCDEF";
+    string ans;
+    for(int i=0;i<8;i++)
+    {
+        ans.push_back(chex[ (int)((uu[i]>>4)&15) ]);
+        ans.push_back(chex[ (int)(uu[i]&15) ]);
+    }
+
+    return ans;
+}
+
+vector<QQFriend> QQClient::_impl::GetFriendList()
+{
+    map<decltype(QQFriend::uin),QQFriend> fmp;
+    vector<QQFriend> res;
+
+    nlohmann::json j;
+    j["vfwebqq"]=vfwebqq;
+    j["hash"]=hidden_hash(uin,ptwebqq);
+
+    string jstr="r="+j.dump();
+
+    HTTPConnection t;
+    t.setVerbos(true);
+    t.setUserAgent(USERAGENT);
+    t.setMethod(HTTPConnection::Method::Post);
+    t.setURL(URL_GET_FRIEND_LIST);
+    t.setReferer(REF_GET_FRIEND_LIST);
+    t.setPostData(jstr);
+    t.setCookieInputFile("tmp/cookie5.txt");
+    t.setDataOutputBuffer(nullptr,0);
+
+    t.perform();
+
+    if(t.getResponseCode()!=200)
+    {
+        ShowError("http response code not 200\n");
+        return res;
+    }
+
+    printf("DataOutputBuffer Length: %d\n",t.getDataOutputBufferLength());
+    string response((char*)t.getDataOutputBuffer(),t.getDataOutputBufferLength());
+
+    ShowMsg("response: %s\n",response.c_str());
+
+//    response = UTF8ToGBK(response);
+//
+//    ShowMsg("response: %s\n",response.c_str());
+
+    ShowMsg("Start friend parsing...\n");
+
+    nlohmann::json x=nlohmann::json::parse(response);
+    if(x["retcode"]!=0)
+    {
+        ShowError("retcode not 0.\n");
+        return res;
+    }
+
+    for(auto& f:j["result"]["friends"])
+    {
+        QQFriend q;
+        q.uin=f["uin"];
+        q.categories=f["categories"];
+
+        ShowMsg("Appending friend %I64d\n",q.uin);
+        fmp[q.uin]=q;
+    }
+
+    for(auto& f:j["result"]["marknames"])
+    {
+        decltype(QQFriend::uin) uin=f["uin"];
+        auto iter=fmp.find(uin);
+        if(iter!=fmp.end())
+        {
+            QQFriend& q=iter->second;
+            q.markname=f["markname"];
+        }
+        else
+        {
+            ShowError("Friend profile not found with uin: %I64d\n",uin);
+        }
+    }
+
+    for(auto& f:j["result"]["vipinfo"])
+    {
+        decltype(QQFriend::uin) uin=f["uin"]; /// TODO: uin? u?
+        auto iter=fmp.find(uin);
+        if(iter!=fmp.end())
+        {
+            QQFriend& q=iter->second;
+            q.vip=(f["is_vip"]==0);
+            q.viplevel=f["vip_level"];
+        }
+        else
+        {
+            ShowError("Friend profile not found with uin: %I64d\n",uin);
+        }
+    }
+
+    for(auto& f:j["result"]["info"])
+    {
+        decltype(QQFriend::uin) uin=f["uin"];
+        auto iter=fmp.find(uin);
+        if(iter!=fmp.end())
+        {
+            QQFriend& q=iter->second;
+            q.nickname=f["nick"];
+        }
+        else
+        {
+            ShowError("Friend profile not found with uin: %I64d\n",uin);
+        }
+    }
+
+    for(auto& pr:fmp)
+    {
+        res.push_back(pr.second);
+    }
+
+    ShowMsg("friend parse done.\n");
+
+    return res;
 }
 
 int QQClient::loginWithQRCode()
@@ -554,4 +706,9 @@ int QQClient::login()
 QQMessage QQClient::getNextMessage()
 {
     return _p->GetNextMessage();
+}
+
+vector<QQFriend> QQClient::getFriendList()
+{
+    return _p->GetFriendList();
 }

@@ -6,11 +6,11 @@ int main()
     QQClient q;
     int ret=q.login();
     printf("QQClient login returns %d\n",ret);
-    while(1)
+    auto vec=q.getFriendList();
+    printf("Get %d friends.\n",(int)vec.size());
+    for(auto& x:vec)
     {
-        QQMessage m=q.getNextMessage();
-        printf("QQMessage received.\n");
-        Sleep(1000);
+        printf("%s %s\n",x.markname.c_str(),x.nickname.c_str());
     }
     return 0;
 }

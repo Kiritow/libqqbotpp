@@ -1,4 +1,17 @@
 #include <string>
+#include <vector>
+
+class QQFriend
+{
+public:
+    long long uin;
+    std::string markname;
+    std::string nickname;
+    bool vip;
+    int viplevel;
+
+    int categories;
+};
 
 class QQMessage
 {
@@ -36,6 +49,7 @@ public:
     int login();
 
     QQMessage getNextMessage();
+    std::vector<QQFriend> getFriendList();
 private:
     class _impl;
     _impl* _p;
